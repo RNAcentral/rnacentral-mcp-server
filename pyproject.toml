@@ -1,0 +1,16 @@
+[project]
+name = "rnacentral-mcp-server"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "aiohttp>=3.11.18",
+    "mcp[cli]>=1.8.0",
+]
+
+[project.scripts] 
+run-server = "rnacentral_sequence_search.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = "rnacentral_sequence_search"

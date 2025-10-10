@@ -51,13 +51,22 @@ This will start the server and open the MCP Inspector, allowing you to test the 
 
 ### Using with Claude Desktop
 
-To install the server in Claude Desktop:
-
-```bash
-mcp install rnacentral_server.py --name "RNAcentral Search"
+To install the server in Claude Desktop, add this to your claude_desktop_config.json:
+json
 ```
-
-This will add the server to your Claude Desktop configuration, allowing you to use it directly in conversations with Claude.
+  {
+    "mcpServers": {
+      "rnacentral": {
+        "command": "uvx",
+        "args": [
+          "--from",
+          "git+https://github.com/rnacentral/rnacentral-mcp-server.git",
+          "run-server"
+        ]
+      }
+    }
+  }
+```
 
 ### Direct Execution
 

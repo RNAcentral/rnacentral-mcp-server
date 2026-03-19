@@ -17,6 +17,162 @@ mcp = FastMCP("RNAcentral Sequence Search", dependencies=["aiohttp", "mcp"])
 
 # Base URL for the RNAcentral API
 RNA_CENTRAL_SERVER = "https://search.rnacentral.org/"
+EBI_SEARCH_URL = "https://www.ebi.ac.uk/ebisearch/ws/rest/rnacentral"
+
+
+@mcp.tool()
+async def query_rnacentral(
+    query: str,
+    rna_type: Optional[str] = None,
+    taxon_id: Optional[int] = None,
+    expert_db: Optional[str] = None,
+    has_secondary_structure: Optional[bool] = None,
+    limit: int = 10
+) -> str:
+    """
+    Comprehensive search for RNA sequences using EBI Search and RNAcentral APIs.
+    Combines text search filters with detailed metadata (Rfam, GO, 2D structure).
+    
+    Args:
+        query: Search term (e.g., "telomerase", "hsa-mir-126", "HOTAIR")
+        rna_type: Filter by RNA type (e.g., "miRNA", "lncRNA", "tRNA")
+        taxon_id: NCBI Taxonomy ID (e.g., 9606 for human, 10090 for mouse)
+        expert_db: Source database (e.g., "miRBase", "GENCODE", "Ensembl")
+        has_secondary_structure: Filter for RNAs with known 2D structure
+        limit: Number of results to return (default 10, max 20)
+    """
+    # Ensure limit is within reasonable bounds
+    limit = min(max(1, limit), 20)
+    
+    # Construct EBI Search query
+    query_parts = [f"({query})"]
+    if rna_type:
+        query_parts.append(f'rna_type:"{rna_type}"')
+    if taxon_id:
+        # Some EBI indices use tax_string or similar for numeric IDs in query
+        query_parts.append(str(taxon_id))
+    if expert_db:
+        query_parts.append(f'expert_db:"{expert_db}"')
+    if has_secondary_structure is not None:
+        val = "true" if has_secondary_structure else "false"
+        query_parts.append(f"has_secondary_structure:{val}")
+    
+    full_query = " AND ".join(query_parts)
+    
+    fields = [
+        'description', 'rna_type', 'expert_db', 'common_name', 
+        'tax_string', 'has_secondary_structure', 'length'
+    ]
+    
+    params = {
+        'query': full_query,
+        'fields': ','.join(fields),
+        'format': 'json',
+        'size': limit
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            # 1. Query EBI Search
+            # We use the EBI REST API to get basic metadata and hits
+            ebi_url = "https://www.ebi.ac.uk/ebisearch/ws/rest/rnacentral"
+            async with session.get(ebi_url, params=params) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    return f"Error querying EBI Search: {response.status} - {error_text}"
+                ebi_data = await response.json()
+            
+            entries = ebi_data.get('entries', [])
+            if not entries:
+                return f"No results found for query: {full_query}"
+            
+            # 2. Concurrently fetch metadata from RNAcentral for each hit
+            async def fetch_rnacentral_metadata(entry):
+                urs_full = entry['id']
+                urs = urs_full.split('_')[0]
+                url = f"https://rnacentral.org/api/v1/rna/{urs}"
+                try:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            return await resp.json()
+                        else:
+                            logger.error(f"Error fetching metadata for {urs}: HTTP {resp.status}")
+                except Exception as e:
+                    logger.error(f"Exception fetching metadata for {urs}: {e}")
+                return None
+
+            tasks = [fetch_rnacentral_metadata(entry) for entry in entries]
+            rnacentral_metadata_list = await asyncio.gather(*tasks)
+            
+            # 3. Format results
+            markdown = [f"# RNAcentral Search Results: {query}", ""]
+            
+            for i, (entry, meta) in enumerate(zip(entries, rnacentral_metadata_list)):
+                urs_full = entry['id']
+                urs = urs_full.split('_')[0]
+                fields_data = entry.get('fields', {})
+                
+                # EBI Fields are lists; use .get() with a safe default
+                def get_field(fname, default="N/A"):
+                    f_list = fields_data.get(fname, [])
+                    return f_list[0] if f_list else default
+
+                desc = get_field('description', 'No description')
+                r_type = get_field('rna_type')
+                # Try tax_string first; truncate it if it's too long
+                tax = get_field('tax_string')
+                if tax == "N/A":
+                    tax = get_field('common_name', 'Unknown')
+                elif ";" in tax:
+                    # Show only the last 3 parts for brevity
+                    parts = [p.strip() for p in tax.split(';') if p.strip()]
+                    if len(parts) > 3:
+                        tax = "... " + "; ".join(parts[-3:])
+                
+                expert_dbs = ", ".join(fields_data.get('expert_db', []))
+                length = get_field('length')
+                has_2d = get_field('has_secondary_structure', 'false').lower() == 'true'
+                
+                markdown.append(f"### {i+1}. [{urs_full}](https://rnacentral.org/rna/{urs})")
+                markdown.append(f"**Description**: {desc}")
+                markdown.append(f"**Type**: {r_type} | **Organism**: {tax} | **Length**: {length} nt")
+                if expert_dbs:
+                    markdown.append(f"**Databases**: {expert_dbs}")
+                
+                if meta:
+                    # Extract high-signal info from RNAcentral API response
+                    # GO terms
+                    go_annots = meta.get('go_annotations', [])
+                    if go_annots:
+                        go_terms = []
+                        for x in go_annots[:3]:
+                            term = x.get('ontology_term', {})
+                            if term and term.get('name'):
+                                go_terms.append(term.get('name'))
+                        if go_terms:
+                            markdown.append(f"**GO Annotations**: {', '.join(go_terms)}")
+                    
+                    # Rfam hits
+                    rfam_hits_data = meta.get('rfam_hits', [])
+                    if rfam_hits_data:
+                        rfam_links = []
+                        for x in rfam_hits_data[:2]:
+                            rfam_id = x.get('rfam_family_id')
+                            if rfam_id:
+                                rfam_links.append(f"[{rfam_id}](https://rfam.org/family/{rfam_id})")
+                        if rfam_links:
+                            markdown.append(f"**Rfam Hits**: {', '.join(rfam_links)}")
+                
+                if has_2d:
+                    markdown.append("**2D Structure**: Available")
+                
+                markdown.append("")
+                
+            return "\n".join(markdown)
+
+    except Exception as e:
+        logger.error(f"Error in query_rnacentral: {e}")
+        return f"An error occurred while querying RNAcentral: {str(e)}"
 
 
 @mcp.tool()

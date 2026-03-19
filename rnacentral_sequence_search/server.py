@@ -2,12 +2,14 @@
 import asyncio
 import aiohttp
 import time
+import os
 from typing import List, Optional
 import aiohttp.web
+import click
 from mcp.server.fastmcp import FastMCP, Context
 
 import logging
-logging.basicConfig(filename="/Users/agreen/code/rnacentral-mcp-server/logs", level=logging.DEBUG)
+
 logger = logging.getLogger('rna_search')
 
 # Initialize the MCP server
@@ -161,12 +163,26 @@ def format_results(results, job_id, sequence):
     print("\n".join(markdown))
     return "\n".join(markdown)
 
-def main():
+@click.command()
+@click.option('--log-dir', type=click.Path(file_okay=False, dir_okay=True, writable=True), help="Directory to store log files.")
+def main(log_dir: Optional[str]):
     """
     Main function to run the MCP server.
     """
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, "rnacentral_mcp.log")
+        logging.basicConfig(
+            filename=log_file,
+            level=logging.DEBUG,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            force=True
+        )
+    else:
+        logging.basicConfig(level=logging.INFO, force=True)
+    
     mcp.run()
 
 # Run the server if executed directly
 if __name__ == "__main__":
-    mcp.run()
+    main()

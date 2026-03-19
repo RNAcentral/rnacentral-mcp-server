@@ -37,47 +37,57 @@ Or using pip:
 pip install "mcp[cli]" aiohttp
 ```
 
-2. Save the `rnacentral_server.py` file to your project directory.
+2. Save the `rnacentral_sequence_search/server.py` file to your project directory.
 
 ## Running the Server
 
 ### Development Mode (with MCP Inspector)
 
 ```bash
-mcp dev rnacentral_server.py
+mcp dev rnacentral_sequence_search/server.py
 ```
 
 This will start the server and open the MCP Inspector, allowing you to test the server interactively.
 
 ### Using with Claude Desktop
 
-To install the server in Claude Desktop, add this to your claude_desktop_config.json:
-json
-```
-  {
-    "mcpServers": {
-      "rnacentral": {
-        "command": "uvx",
-        "args": [
-          "--from",
-          "git+https://github.com/rnacentral/rnacentral-mcp-server.git",
-          "run-server"
-        ]
-      }
+To install the server in Claude Desktop, add this to your `claude_desktop_config.json`. You can optionally specify a `--log-dir` to save logs to a specific directory:
+
+```json
+{
+  "mcpServers": {
+    "rnacentral": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/rnacentral/rnacentral-mcp-server.git",
+        "run-server",
+        "--log-dir",
+        "/Users/YOUR_USERNAME/logs/rnacentral"
+      ]
     }
   }
+}
 ```
 
 ### Direct Execution
 
+You can run the server directly using Python. Use the `--log-dir` argument to specify where to save log files:
+
 ```bash
-python rnacentral_server.py
+python rnacentral_sequence_search/server.py --log-dir ./logs
 ```
 
-Or:
+Or using the installed script:
 
 ```bash
-mcp run rnacentral_server.py
+run-server --log-dir ./logs
+```
+
+Or via the MCP CLI:
+
+```bash
+mcp run rnacentral_sequence_search/server.py
 ```
 
 ## Usage Examples

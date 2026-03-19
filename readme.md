@@ -4,11 +4,11 @@ This is an MCP server that wraps the RNAcentral sequence search API, allowing yo
 
 ## Features
 
-- Search for RNA sequences across multiple databases
-- Optional filtering by specific databases
-- Progress tracking during search
-- Markdown-formatted results with links to RNAcentral entries
-- Summary of top hits with detailed information
+- **Bidirectional ID Mapping**: Map between RNAcentral URS IDs and external database identifiers (miRBase, Ensembl, HGNC, etc.).
+- **Comprehensive Search**: Query RNAcentral using natural language or filters (RNA type, taxon, expert database).
+- **Metadata Enrichment**: Results include Rfam hits, GO annotations, and 2D structure availability.
+- **Sequence Search**: Search for RNA sequences across multiple databases with progress tracking.
+- **Markdown Results**: Formatted results with links to RNAcentral entries and external resources.
 
 ## Prerequisites
 
@@ -94,7 +94,34 @@ mcp run rnacentral_sequence_search/server.py
 
 Once the server is running, you can search for RNA sequences:
 
-### Basic search
+### Bidirectional ID Mapping
+
+Map an external ID to RNAcentral and see all cross-references (optionally filtered by taxon name or ID):
+
+```
+Tool: map_rna_id
+Arguments:
+{
+  "identifier": "MIMAT0000062",
+  "taxon": "Homo sapiens"
+}
+```
+
+### Comprehensive Search
+
+Search for RNAs with specific criteria (e.g., human telomerase RNAs with 2D structure):
+
+```
+Tool: query_rnacentral
+Arguments:
+{
+  "query": "telomerase",
+  "taxon": "Homo sapiens",
+  "has_secondary_structure": true
+}
+```
+
+### Basic sequence search
 
 Search for an RNA sequence across all databases:
 

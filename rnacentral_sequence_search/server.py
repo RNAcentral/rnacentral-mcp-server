@@ -18,6 +18,7 @@ mcp = FastMCP("RNAcentral Sequence Search", dependencies=["aiohttp", "mcp"])
 # Base URLs
 RNA_CENTRAL_SERVER = "https://search.rnacentral.org/"
 EBI_SEARCH_URL = "https://www.ebi.ac.uk/ebisearch/ws/rest/rnacentral"
+EXPORT_SERVICE_URL = "https://export.rnacentral.org/"
 
 async def resolve_taxid(session: aiohttp.ClientSession, taxon: Optional[str]) -> Optional[int]:
     """Resolves a taxon name or ID to an NCBI Taxon ID using the ENA API."""
@@ -52,6 +53,34 @@ async def resolve_taxid(session: aiohttp.ClientSession, taxon: Optional[str]) ->
         pass
         
     return None
+
+def build_ebi_query(
+    query: str,
+    rna_type: Optional[str] = None,
+    taxon_id: Optional[int] = None,
+    expert_db: Optional[str] = None,
+    has_secondary_structure: Optional[bool] = None,
+    min_length: Optional[int] = None,
+    max_length: Optional[int] = None
+) -> str:
+    """Helper to construct an EBI Search query string."""
+    query_parts = [f"({query})"]
+    if rna_type:
+        query_parts.append(f'rna_type:"{rna_type}"')
+    if taxon_id:
+        query_parts.append(str(taxon_id))
+    if expert_db:
+        query_parts.append(f'expert_db:"{expert_db}"')
+    if has_secondary_structure is not None:
+        val = "true" if has_secondary_structure else "false"
+        query_parts.append(f"has_secondary_structure:{val}")
+    
+    if min_length is not None or max_length is not None:
+        l_min = min_length if min_length is not None else "*"
+        l_max = max_length if max_length is not None else "*"
+        query_parts.append(f"length:[{l_min} TO {l_max}]")
+        
+    return " AND ".join(query_parts)
 
 @mcp.tool()
 async def map_rna_id(identifier: str, taxon: Optional[str] = None) -> str:
@@ -198,19 +227,13 @@ async def query_rnacentral(
     async with aiohttp.ClientSession() as session:
         taxon_id = await resolve_taxid(session, taxon)
         
-        # Construct EBI Search query
-        query_parts = [f"({query})"]
-        if rna_type:
-            query_parts.append(f'rna_type:"{rna_type}"')
-        if taxon_id:
-            query_parts.append(str(taxon_id))
-        if expert_db:
-            query_parts.append(f'expert_db:"{expert_db}"')
-        if has_secondary_structure is not None:
-            val = "true" if has_secondary_structure else "false"
-            query_parts.append(f"has_secondary_structure:{val}")
-        
-        full_query = " AND ".join(query_parts)
+        full_query = build_ebi_query(
+            query=query,
+            rna_type=rna_type,
+            taxon_id=taxon_id,
+            expert_db=expert_db,
+            has_secondary_structure=has_secondary_structure
+        )
         
         fields = [
             'description', 'rna_type', 'expert_db', 'common_name', 
@@ -311,6 +334,110 @@ async def query_rnacentral(
         except Exception as e:
             logger.error(f"Error in query_rnacentral: {e}")
             return f"An error occurred while querying RNAcentral: {str(e)}"
+
+@mcp.tool()
+async def export_sequences(
+    query: str,
+    rna_type: Optional[str] = None,
+    taxon: Optional[str] = None,
+    expert_db: Optional[str] = None,
+    has_secondary_structure: Optional[bool] = None,
+    min_length: Optional[int] = None,
+    max_length: Optional[int] = None,
+    format: str = "fasta"
+) -> str:
+    """
+    Export bulk RNA sequences matching a query in FASTA or Parquet format.
+    Use this for large-scale data retrieval (e.g., ML dataset generation).
+    
+    Args:
+        query: Search term (e.g., "telomerase", "hsa-mir-126", "HOTAIR")
+        rna_type: Filter by RNA type (e.g., "miRNA", "lncRNA", "tRNA")
+        taxon: Taxon name or NCBI Taxonomy ID.
+        expert_db: Source database (e.g., "miRBase", "GENCODE", "Ensembl")
+        has_secondary_structure: Filter for RNAs with known 2D structure
+        min_length: Minimum sequence length (nt)
+        max_length: Maximum sequence length (nt)
+        format: Output format ("fasta" or "parquet", default "fasta")
+    """
+    format = format.lower()
+    if format not in ["fasta", "parquet"]:
+        return "Error: Unsupported format. Please choose 'fasta' or 'parquet'."
+        
+    async with aiohttp.ClientSession() as session:
+        taxon_id = await resolve_taxid(session, taxon)
+        
+        full_query = build_ebi_query(
+            query=query,
+            rna_type=rna_type,
+            taxon_id=taxon_id,
+            expert_db=expert_db,
+            has_secondary_structure=has_secondary_structure,
+            min_length=min_length,
+            max_length=max_length
+        )
+        
+        # Build source API URL for EBI Search
+        # The export service needs the full URL that the export would be based on
+        source_api_url = f"{EBI_SEARCH_URL}?query={full_query}"
+        
+        payload = {
+            "source_api_url": source_api_url,
+            "format": format
+        }
+        
+        try:
+            # 1. Submit export job
+            async with session.post(f"{EXPORT_SERVICE_URL}submit", json=payload) as resp:
+                if resp.status not in [200, 201, 202]:
+                    error_text = await resp.text()
+                    return f"Error submitting export job: {resp.status} - {error_text}"
+                data = await resp.json()
+                job_id = data.get("job_id")
+                if not job_id:
+                    return "Error: No job ID returned from export service"
+
+            # 2. Poll for completion
+            download_url = f"{EXPORT_SERVICE_URL}download/{job_id}/{format}"
+            status_url = f"{EXPORT_SERVICE_URL}status?job_id={job_id}"
+            
+            attempts = 0
+            max_attempts = 30 # 5 minutes with 10s sleep
+            
+            is_ready = False
+            while attempts < max_attempts:
+                attempts += 1
+                async with session.get(status_url) as resp:
+                    if resp.status == 200:
+                        status_data = await resp.json()
+                        status = status_data.get("status", "").lower()
+                        if status == "finished" or status == "success":
+                            is_ready = True
+                            break
+                        elif status == "failed":
+                            return f"Export job failed: {status_data.get('message', 'Unknown error')}"
+                await asyncio.sleep(10)
+
+            if not is_ready:
+                return f"Export job `{job_id}` is still processing. You can download the results once ready at: {download_url}"
+
+            # 3. Format result
+            markdown = [
+                "# Bulk Sequence Export",
+                f"Your export job (`{job_id}`) has completed successfully.",
+                "",
+                f"**Query**: `{full_query}`",
+                f"**Format**: {format.upper()}",
+                "",
+                f"### [Download Results]({download_url})",
+                "",
+                "Note: The download link will trigger the file download directly. The file might be compressed (e.g., .gz) for FASTA."
+            ]
+            return "\n".join(markdown)
+
+        except Exception as e:
+            logger.error(f"Error in export_sequences: {e}")
+            return f"An error occurred while exporting sequences: {str(e)}"
 
 @mcp.tool()
 async def get_rna_description(rna_id: str) -> str:

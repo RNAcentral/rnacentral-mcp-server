@@ -15,3 +15,7 @@ run-server = "rnacentral_sequence_search.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = "rnacentral_sequence_search"
+
+[build-system]
+   requires = ["setuptools>=45", "wheel"]
+   build-backend = "setuptools.build_meta"

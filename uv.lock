@@ -728,15 +728,17 @@ wheels = [
 [[package]]
 name = "rnacentral-mcp-server"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
+    { name = "click" },
     { name = "mcp", extra = ["cli"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.18" },
+    { name = "click", specifier = ">=8.1.8" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.8.0" },
 ]
 

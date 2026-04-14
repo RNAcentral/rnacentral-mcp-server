@@ -11,12 +11,23 @@ from rnacentral_sequence_search.mapping import fetch_rna_mapping
 from rnacentral_sequence_search.search import perform_query_rnacentral, perform_export_sequences, perform_search_sequence
 from rnacentral_sequence_search.overlap import fetch_overlapping_ncrnas
 from rnacentral_sequence_search.literature import fetch_rna_description
+from rnacentral_sequence_search.structure import fetch_secondary_structure_svg
 
 # Configure logging
 logger = logging.getLogger('rna_search')
 
 # Initialize the MCP server
 mcp = FastMCP("RNAcentral Sequence Search", dependencies=["aiohttp", "mcp"])
+
+@mcp.tool()
+async def get_secondary_structure_svg(urs_id: str):
+    """
+    Get the secondary structure (2D diagram) for an RNA sequence in SVG format.
+    
+    Args:
+        urs_id: The RNAcentral URS ID (e.g., 'URS0000049E57')
+    """
+    return await fetch_secondary_structure_svg(urs_id)
 
 @mcp.tool()
 async def map_rna_id(identifier: str, taxon: Optional[str] = None) -> str:

@@ -19,6 +19,7 @@ mcp = FastMCP("RNAcentral Sequence Search", dependencies=["aiohttp", "mcp"])
 RNA_CENTRAL_SERVER = "https://search.rnacentral.org/"
 EBI_SEARCH_URL = "https://www.ebi.ac.uk/ebisearch/ws/rest/rnacentral"
 EXPORT_SERVICE_URL = "https://export.rnacentral.org/"
+ENSEMBL_GRAPHQL_URL = "https://beta.ensembl.org/data/graphql"
 
 async def resolve_taxid(session: aiohttp.ClientSession, taxon: Optional[str]) -> Optional[int]:
     """Resolves a taxon name or ID to an NCBI Taxon ID using the ENA API."""
@@ -53,6 +54,102 @@ async def resolve_taxid(session: aiohttp.ClientSession, taxon: Optional[str]) ->
         pass
         
     return None
+
+async def resolve_gene_coordinates(session: aiohttp.ClientSession, taxid: int, gene_symbol: Optional[str]):
+    """Uses Ensembl GraphQL to get the coordinates of a gene and/or scientific name."""
+    # 1. Get genome ID and scientific name
+    query = {
+        "query": f"""
+        query GetGenome {{
+          genomes(by_keyword: {{ species_taxonomy_id: "{taxid}" }}) {{
+            genome_id
+            scientific_name
+            assembly_accession
+            genome_tag
+          }}
+        }}
+        """
+    }
+    
+    genome_id = None
+    scientific_name = None
+    try:
+        async with session.post(ENSEMBL_GRAPHQL_URL, json=query) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                genomes = data.get("data", {}).get("genomes", [])
+                if genomes:
+                    # Heuristic: Prefer GRCh38 for human, or generally the one with highest accession
+                    sorted_genomes = sorted(
+                        genomes, 
+                        key=lambda x: x.get("assembly_accession", ""), 
+                        reverse=True
+                    )
+                    
+                    # Also prefer grch38 tag if available (common for many species in beta Ensembl)
+                    grch38_genomes = [g for g in sorted_genomes if g.get("genome_tag") == "grch38"]
+                    best_genome = grch38_genomes[0] if grch38_genomes else sorted_genomes[0]
+                    
+                    genome_id = best_genome.get("genome_id")
+                    scientific_name = best_genome.get("scientific_name")
+            else:
+                return None, None, f"GraphQL genome query failed: {resp.status}"
+    except Exception as e:
+        logger.error(f"GraphQL genome error: {e}")
+        return None, None, f"GraphQL genome error: {e}"
+            
+    if not genome_id:
+        return None, None, f"Could not resolve genome_id for taxon ID: {taxid} via Ensembl GraphQL."
+
+    if not gene_symbol:
+        return None, scientific_name, None
+
+    # 2. Get gene coordinates
+    gene_query = {
+        "query": f"""
+        query GenesBySymbol {{
+          genes(by_symbol: {{ 
+            genome_id: "{genome_id}", 
+            symbol: "{gene_symbol}" 
+          }}) {{
+            stable_id
+            slice {{
+              region {{
+                name
+              }}
+              location {{
+                start
+                end
+              }}
+            }}
+          }}
+        }}
+        """
+    }
+    
+    try:
+        async with session.post(ENSEMBL_GRAPHQL_URL, json=gene_query) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                genes = data.get("data", {}).get("genes", [])
+                if not genes:
+                    return None, scientific_name, f"Gene {gene_symbol} not found in genome {genome_id}."
+                
+                gene = genes[0]
+                slice_info = gene.get("slice", {})
+                region_name = slice_info.get("region", {}).get("name")
+                location = slice_info.get("location", {})
+                start = location.get("start")
+                end = location.get("end")
+                
+                if region_name and start is not None and end is not None:
+                    return (region_name, start, end), scientific_name, None
+                else:
+                    return None, scientific_name, "Gene found but missing coordinate information."
+            else:
+                return None, scientific_name, f"GraphQL gene query failed: {resp.status}"
+    except Exception as e:
+        return None, scientific_name, f"GraphQL gene error: {e}"
 
 def build_ebi_query(
     query: str,
@@ -438,6 +535,140 @@ async def export_sequences(
         except Exception as e:
             logger.error(f"Error in export_sequences: {e}")
             return f"An error occurred while exporting sequences: {str(e)}"
+
+@mcp.tool()
+async def get_overlapping_ncrnas(
+    species: str,
+    chromosome: Optional[str] = None,
+    start: Optional[int] = None,
+    end: Optional[int] = None,
+    gene_symbol: Optional[str] = None
+) -> str:
+    """
+    Get non-coding RNAs overlapping a genomic region or a specific gene.
+    
+    You must provide EITHER:
+    - chromosome, start, and end (e.g., chromosome="1", start=100000, end=200000)
+    - OR gene_symbol (e.g., "BRCA2"), which will be automatically resolved to coordinates via Ensembl.
+    
+    Args:
+        species: Common name (e.g. "human", "mouse") or scientific name (e.g. "homo_sapiens").
+        chromosome: Chromosome name (e.g., "1", "X", "chr1").
+        start: Start coordinate.
+        end: End coordinate.
+        gene_symbol: Gene symbol to lookup coordinates for.
+    """
+    if not gene_symbol and not (chromosome and start is not None and end is not None):
+        return "Error: You must provide EITHER gene_symbol OR (chromosome, start, and end)."
+        
+    async with aiohttp.ClientSession() as session:
+        # 1. Resolve taxon ID
+        taxon_id = await resolve_taxid(session, species)
+        if not taxon_id:
+            return f"Error: Could not resolve species '{species}' to a Taxon ID."
+
+        # 2. Resolve coordinates and/or scientific name via Ensembl
+        # We call this even if gene_symbol is not provided to get the canonical scientific_name
+        coords, scientific_name, err = await resolve_gene_coordinates(session, taxon_id, gene_symbol)
+        
+        if gene_symbol:
+            if err:
+                return f"Coordinate Resolution Error: {err}"
+            chromosome, start, end = coords
+            
+        # 3. Determine RNAcentral species identifier (lowercase_with_underscores)
+        if scientific_name:
+            rnacentral_species = scientific_name.lower().replace(" ", "_")
+        else:
+            # Fallback to input if Ensembl failed to give a name but we have coordinates
+            rnacentral_species = species.lower().replace(" ", "_")
+            
+        # 4. Query RNAcentral Overlap API
+        # Remove 'chr' prefix if present for RNAcentral
+        chr_clean = str(chromosome).replace("chr", "") if str(chromosome).lower().startswith("chr") else str(chromosome)
+        
+        # Build API URL: https://rnacentral.org/api/v1/overlap/region/{species}/{chr}:{start}-{end}/
+        url = f"https://rnacentral.org/api/v1/overlap/region/{rnacentral_species}/{chr_clean}:{start}-{end}/"
+        
+        try:
+            all_results = []
+            current_url = url
+            
+            # Limit pagination to prevent excessive context usage
+            for _ in range(3): 
+                async with session.get(current_url) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if isinstance(data, list):
+                            all_results.extend(data)
+                            break
+                        elif isinstance(data, dict):
+                            results = data.get("results", [])
+                            all_results.extend(results)
+                            current_url = data.get("next")
+                            if not current_url:
+                                break
+                    elif resp.status == 404:
+                        break
+                    else:
+                        error_text = await resp.text()
+                        return f"Error querying RNAcentral overlap API: HTTP {resp.status} - {error_text}\nURL: {url}"
+            
+            # Filter results to transcripts and ensure they are ncRNAs
+            transcripts = [r for r in all_results if r.get("feature_type") == "transcript"]
+            if not transcripts:
+                # Fallback if no explicit transcripts but we have results (some endpoints differ)
+                transcripts = [r for r in all_results if "Parent" not in r]
+                        
+            if not transcripts:
+                return f"No overlapping RNAs found for {rnacentral_species} ({scientific_name or species}) at {chr_clean}:{start}-{end}."
+                
+            # 5. Format Results
+            markdown = [
+                f"# Overlapping ncRNAs in {scientific_name or species}",
+                f"**Region**: `{chr_clean}:{start}-{end}`",
+            ]
+            if gene_symbol:
+                markdown.append(f"**Gene Symbol**: `{gene_symbol}`")
+                
+            markdown.append(f"\nFound **{len(transcripts)}** overlapping ncRNAs.\n")
+            
+            # Show top 15 results
+            for i, hit in enumerate(transcripts[:15]):
+                urs_raw = hit.get("rnacentral_id") or hit.get("ID", "Unknown")
+                # Ensure urs_raw is a string to avoid "int is not iterable" error
+                urs_str = str(urs_raw)
+                urs = urs_str.split("@")[0] if "@" in urs_str else urs_str
+                
+                desc = hit.get("description", "No description")
+                rna_type = hit.get("rna_type") or hit.get("biotype", "Unknown")
+                
+                # Calculate overlap percentage
+                hit_start = int(hit.get("start", 0))
+                hit_end = int(hit.get("end", 0))
+                
+                overlap_start = max(start, hit_start)
+                overlap_end = min(end, hit_end)
+                overlap_len = max(0, overlap_end - overlap_start + 1)
+                hit_len = max(1, hit_end - hit_start + 1)
+                overlap_pct = (overlap_len / hit_len) * 100
+                
+                markdown.append(f"### {i+1}. [{urs}](https://rnacentral.org/rna/{urs})")
+                if "@" in urs_str:
+                    markdown.append(f"**Location**: `{urs_str.split('@')[-1]}`")
+                
+                markdown.append(f"**Description**: {desc}")
+                markdown.append(f"**Type**: {rna_type} | **Overlap**: {overlap_pct:.1f}%")
+                markdown.append("")
+                
+            if len(transcripts) > 15:
+                markdown.append(f"*Showing first 15 of {len(transcripts)} results.*")
+                
+            return "\n".join(markdown)
+            
+        except Exception as e:
+            logger.error(f"Error in get_overlapping_ncrnas: {e}")
+            return f"An error occurred while querying overlap: {str(e)}"
 
 @mcp.tool()
 async def get_rna_description(rna_id: str) -> str:

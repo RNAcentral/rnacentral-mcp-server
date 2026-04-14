@@ -143,35 +143,44 @@ async def perform_export_sequences(
     async with aiohttp.ClientSession() as session:
         taxon_id = await resolve_taxid(session, taxon)
         full_query = build_ebi_query(query, rna_type, taxon_id, expert_db, has_secondary_structure, min_length, max_length)
-        source_api_url = f"{EBI_SEARCH_URL}?query={full_query}"
-        payload = {"source_api_url": source_api_url, "format": format}
+        api_url = f"{EBI_SEARCH_URL}?query={full_query}&format=json"
+        payload = {
+            "api_url": api_url, 
+            "format": format,
+            "data_type": format
+        }
         
         try:
             async with session.post(f"{EXPORT_SERVICE_URL}submit", json=payload) as resp:
                 if resp.status not in [200, 201, 202]:
                     return f"Error submitting export job: {resp.status} - {await resp.text()}"
                 data = await resp.json()
-                job_id = data.get("job_id")
+                task_id = data.get("task_id")
             
-            status_url = f"{EXPORT_SERVICE_URL}status?job_id={job_id}"
-            download_url = f"{EXPORT_SERVICE_URL}download/{job_id}/{format}"
+            if not task_id:
+                return "Error: No task_id returned from export service."
+
+            status_url = f"{EXPORT_SERVICE_URL}status/{task_id}"
+            download_url = f"{EXPORT_SERVICE_URL}download/{task_id}/{format}"
             
             is_ready = False
             for _ in range(30):
+                await asyncio.sleep(5)
                 async with session.get(status_url) as resp:
                     if resp.status == 200:
-                        status = (await resp.json()).get("status", "").lower()
-                        if status in ["finished", "success"]:
+                        data = await resp.json()
+                        status = str(data.get("state", data.get("status", ""))).lower()
+                        if status in ["success", "finished", "completed"]:
                             is_ready = True
                             break
-                        elif status == "failed":
-                            return "Export job failed."
-                await asyncio.sleep(10)
-
+                        elif status in ["failed", "error", "failure"]:
+                            error_msg = data.get("error", "Unknown error")
+                            return f"Export job failed: {error_msg}"
+                
             if not is_ready:
-                return f"Export job `{job_id}` is still processing: {download_url}"
+                return f"Export job `{task_id}` is still processing: {download_url}"
 
-            return f"# Bulk Sequence Export\nJob `{job_id}` completed.\n\n### [Download Results]({download_url})"
+            return f"# Bulk Sequence Export\nJob `{task_id}` completed.\n\n### [Download Results]({download_url})"
         except Exception as e:
             return f"An error occurred: {str(e)}"
 

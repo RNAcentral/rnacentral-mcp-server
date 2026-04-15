@@ -1,7 +1,7 @@
 [project]
 name = "rnacentral-mcp-server"
 version = "0.1.0"
-description = "Add your description here"
+description = "An MCP server for RNAcentral, providing RNA sequence search, ID mapping, genomic context, and 2D structures."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

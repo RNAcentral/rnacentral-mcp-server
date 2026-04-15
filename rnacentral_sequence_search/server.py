@@ -17,7 +17,7 @@ from rnacentral_sequence_search.structure import fetch_secondary_structure_svg
 logger = logging.getLogger('rna_search')
 
 # Initialize the MCP server
-mcp = FastMCP("RNAcentral Sequence Search", dependencies=["aiohttp", "mcp"])
+mcp = FastMCP("RNAcentral MCP Server", dependencies=["aiohttp", "mcp"])
 
 @mcp.tool()
 async def get_secondary_structure_svg(urs_id: str):

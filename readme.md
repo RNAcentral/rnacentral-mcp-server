@@ -1,14 +1,16 @@
 # RNAcentral MCP Server
 
-This is an MCP server that wraps the RNAcentral sequence search API, allowing you to easily search for RNA sequences and get nicely formatted results.
+This is an MCP server that provides a comprehensive interface to the RNAcentral database, allowing for complex searches, sequence mapping, genomic analysis, and metadata retrieval for non-coding RNA sequences.
 
 ## Features
 
-- **Bidirectional ID Mapping**: Map between RNAcentral URS IDs and external database identifiers (miRBase, Ensembl, HGNC, etc.).
-- **Comprehensive Search**: Query RNAcentral using natural language or filters (RNA type, taxon, expert database).
-- **Metadata Enrichment**: Results include Rfam hits, GO annotations, and 2D structure availability.
-- **Sequence Search**: Search for RNA sequences across multiple databases with progress tracking.
-- **Markdown Results**: Formatted results with links to RNAcentral entries and external resources.
+- **Comprehensive Search**: Query RNAcentral using natural language or filters (RNA type, taxon, expert database). Combines EBI Search and RNAcentral API data for enriched metadata (Rfam hits, GO annotations).
+- **Sequence Search**: Search for RNA sequences across multiple databases to find identical or similar entries.
+- **Bidirectional ID Mapping**: Map between RNAcentral URS IDs and external database identifiers (miRBase, Ensembl, HGNC, etc.) with automatic taxonomy resolution.
+- **Bulk Sequence Export**: Export search results in FASTA or Parquet formats, ideal for downstream analysis or machine learning datasets.
+- **Genomic Overlap (Ensembl)**: Find non-coding RNAs overlapping specific genomic coordinates or gene symbols using Ensembl's GraphQL integration.
+- **2D Structure Diagrams**: Retrieve secondary structure (2D) diagrams in SVG format for RNAs with known or predicted folds.
+- **Literature Summaries**: Access AI-generated literature summaries for RNA sequences to understand their biological context.
 
 ## Prerequisites
 
@@ -21,8 +23,6 @@ This is an MCP server that wraps the RNAcentral sequence search API, allowing yo
 
 ```bash
 # Using uv (recommended)
-uv init rnacentral-mcp
-cd rnacentral-mcp
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
@@ -30,14 +30,11 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv add "mcp[cli]" aiohttp
 ```
 
-Or using pip:
+2. Install the package in editable mode:
 
 ```bash
-# Using pip
-pip install "mcp[cli]" aiohttp
+uv pip install -e .
 ```
-
-2. Save the `rnacentral_sequence_search/server.py` file to your project directory.
 
 ## Running the Server
 
@@ -84,19 +81,13 @@ Or using the installed script:
 run-server --log-dir ./logs
 ```
 
-Or via the MCP CLI:
-
-```bash
-mcp run rnacentral_sequence_search/server.py
-```
-
 ## Usage Examples
 
-Once the server is running, you can search for RNA sequences:
+Once the server is running, you can interact with various tools:
 
 ### Bidirectional ID Mapping
 
-Map an external ID to RNAcentral and see all cross-references (optionally filtered by taxon name or ID):
+Map an external ID to RNAcentral and see all cross-references:
 
 ```
 Tool: map_rna_id
@@ -107,47 +98,61 @@ Arguments:
 }
 ```
 
-### Comprehensive Search
+### Genomic Overlap
 
-Search for RNAs with specific criteria (e.g., human telomerase RNAs with 2D structure):
+Find ncRNAs overlapping a specific gene in human:
 
 ```
-Tool: query_rnacentral
+Tool: get_overlapping_ncrnas
 Arguments:
 {
-  "query": "telomerase",
-  "taxon": "Homo sapiens",
-  "has_secondary_structure": true
+  "species": "human",
+  "gene_symbol": "HOTAIR"
 }
 ```
 
-### Basic sequence search
+### 2D Structure Retrieval
 
-Search for an RNA sequence across all databases:
+Get the secondary structure diagram for a specific URS ID:
 
 ```
-Tool: search_sequence
+Tool: get_secondary_structure_svg
 Arguments:
 {
-  "sequence": "ACCGUGCAAUCGAUGCAU"
+  "urs_id": "URS0000049E57"
 }
 ```
 
-### Search specific databases
+### Bulk Sequence Export
 
-Search for a sequence in specific databases:
+Export a set of sequences matching a search query for machine learning:
 
 ```
-Tool: search_sequence
+Tool: export_sequences
 Arguments:
 {
-  "sequence": "ACCGUGCAAUCGAUGCAU",
-  "databases": ["miRBase", "snoDB"]
+  "query": "lncRNA",
+  "taxon": "9606",
+  "format": "parquet",
+  "max_length": 500
+}
+```
+
+### Literature Summaries
+
+Get a summary of the known biological role of an RNA:
+
+```
+Tool: get_rna_description
+Arguments:
+{
+  "rna_id": "mmu-mir-191"
 }
 ```
 
 ## Notes
 
-- The server polls the RNAcentral API for up to 30 attempts with 2-second intervals between attempts.
-- For very large sequences or during high server load, searches might time out.
-- The results display the top 5 hits by default, with links to the full results on the RNAcentral website.
+- The server handles complex queries by orchestrating multiple upstream APIs (EBI Search, RNAcentral, Ensembl).
+- Sequence searches poll for results with a timeout to handle varying server loads.
+- The 2D structure SVG can be used for direct visualization in supporting clients.
+- For very large exports, use the `export_sequences` tool which uses specialized microservices for efficiency.

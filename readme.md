@@ -1,6 +1,10 @@
 # RNAcentral MCP Server
 
+[![Documentation](https://img.shields.io/badge/docs-github%20pages-blue)](https://rnacentral.github.io/rnacentral-mcp-server/)
+
 This is an MCP server that provides a comprehensive interface to the RNAcentral database, allowing for complex searches, sequence mapping, genomic analysis, and metadata retrieval for non-coding RNA sequences.
+
+📖 **Full documentation:** <https://rnacentral.github.io/rnacentral-mcp-server/> — installation guides for Claude Desktop / Claude Code / other MCP clients, per-tool reference, and examples.
 
 ## Features
 

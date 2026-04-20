@@ -10,7 +10,16 @@ dependencies = [
     "click>=8.1.8",
 ]
 
-[project.scripts] 
+[project.optional-dependencies]
+docs = [
+    "sphinx>=7.0",
+    "myst-parser>=2.0",
+    "sphinx-rtd-theme>=2.0",
+    "sphinx-copybutton>=0.5",
+    "linkify-it-py>=2.0",
+]
+
+[project.scripts]
 run-server = "rnacentral_sequence_search.server:main"
 
 [tool.hatch.build.targets.wheel]

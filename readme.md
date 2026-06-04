@@ -1,6 +1,7 @@
 # RNAcentral MCP Server
 
 [![Documentation](https://img.shields.io/badge/docs-github%20pages-blue)](https://rnacentral.github.io/rnacentral-mcp-server/)
+[![PyPI](https://img.shields.io/pypi/v/rnacentral-mcp-server)](https://pypi.org/project/rnacentral-mcp-server/)
 
 This is an MCP server that provides a comprehensive interface to the RNAcentral database, allowing for complex searches, sequence mapping, genomic analysis, and metadata retrieval for non-coding RNA sequences.
 
@@ -22,6 +23,24 @@ This is an MCP server that provides a comprehensive interface to the RNAcentral 
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 
 ## Installation
+
+The server is published on PyPI as [`rnacentral-mcp-server`](https://pypi.org/project/rnacentral-mcp-server/). The easiest way to run it is with `uvx`, which fetches and runs it without a manual install:
+
+```bash
+uvx --from rnacentral-mcp-server run-server
+```
+
+Or install it into an environment with pip / uv:
+
+```bash
+pip install rnacentral-mcp-server
+# or
+uv add rnacentral-mcp-server
+```
+
+This makes the `run-server` console script available.
+
+### From source (for development)
 
 1. Set up a Python environment:
 
@@ -61,7 +80,7 @@ To install the server in Claude Desktop, add this to your `claude_desktop_config
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/rnacentral/rnacentral-mcp-server.git",
+        "rnacentral-mcp-server",
         "run-server",
         "--log-dir",
         "/Users/YOUR_USERNAME/logs/rnacentral"
@@ -70,6 +89,8 @@ To install the server in Claude Desktop, add this to your `claude_desktop_config
   }
 }
 ```
+
+(To run the latest unreleased code instead, replace `rnacentral-mcp-server` with `git+https://github.com/rnacentral/rnacentral-mcp-server.git`.)
 
 ### Direct Execution
 

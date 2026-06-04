@@ -8,7 +8,28 @@
 
 ## Installing the server
 
-Clone the repository and sync dependencies:
+The server is published on PyPI as
+[`rnacentral-mcp-server`](https://pypi.org/project/rnacentral-mcp-server/). The
+simplest option is to let `uvx` fetch and run it on demand — no explicit install
+step required:
+
+```bash
+uvx --from rnacentral-mcp-server run-server
+```
+
+To install it into an environment instead:
+
+```bash
+pip install rnacentral-mcp-server
+# or
+uv add rnacentral-mcp-server
+```
+
+Either way, the console script `run-server` becomes available.
+
+### From source
+
+For development, clone the repository and sync dependencies:
 
 ```bash
 git clone https://github.com/rnacentral/rnacentral-mcp-server.git
@@ -25,6 +46,10 @@ The server speaks the Model Context Protocol over stdio, so any MCP-capable clie
 can launch it. The examples below cover the most common clients — if you're using
 something different, point it at the same `uvx ... run-server` command.
 
+The commands below use the PyPI package. To run the latest unreleased code instead,
+replace `rnacentral-mcp-server` with
+`git+https://github.com/rnacentral/rnacentral-mcp-server.git`.
+
 ### Claude Desktop
 
 Add the server to `claude_desktop_config.json` (on macOS:
@@ -37,7 +62,7 @@ Add the server to `claude_desktop_config.json` (on macOS:
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/rnacentral/rnacentral-mcp-server.git",
+        "rnacentral-mcp-server",
         "run-server",
         "--log-dir",
         "/Users/YOUR_USERNAME/logs/rnacentral"
@@ -56,8 +81,7 @@ Restart Claude Desktop and the `rnacentral` tools should appear in the tool pick
 Register the server with `claude mcp add`:
 
 ```bash
-claude mcp add rnacentral -- uvx --from \
-  git+https://github.com/rnacentral/rnacentral-mcp-server.git run-server
+claude mcp add rnacentral -- uvx --from rnacentral-mcp-server run-server
 ```
 
 ### Other MCP clients
@@ -65,7 +89,7 @@ claude mcp add rnacentral -- uvx --from \
 Any client that launches an MCP server over stdio works. The command to run is:
 
 ```bash
-uvx --from git+https://github.com/rnacentral/rnacentral-mcp-server.git run-server
+uvx --from rnacentral-mcp-server run-server
 ```
 
 Or, from a local clone:

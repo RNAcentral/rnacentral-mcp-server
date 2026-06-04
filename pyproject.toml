@@ -1,8 +1,8 @@
 [project]
 name = "rnacentral-mcp-server"
-version = "0.1.0"
+version = "0.1.1"
 description = "An MCP server for RNAcentral, providing RNA sequence search, ID mapping, genomic context, and 2D structures."
-readme = "readme.md"
+readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [{name = "Andrew Green", email = "agreen@ebi.ac.uk"}]

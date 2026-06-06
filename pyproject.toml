@@ -13,7 +13,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "aiohttp>=3.11.18",
+    "aiohttp>=3.14.0",
     "mcp[cli]>=1.8.0",
     "click>=8.1.8",
 ]

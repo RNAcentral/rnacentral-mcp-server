@@ -8,7 +8,7 @@ from mcp.server.fastmcp import FastMCP
 
 # Import from feature modules
 from rnacentral_sequence_search.mapping import fetch_rna_mapping
-from rnacentral_sequence_search.search import perform_query_rnacentral, perform_export_sequences, perform_search_sequence
+from rnacentral_sequence_search.search import perform_query_rnacentral, perform_export_sequences, perform_search_sequence, fetch_sequence_search_results
 from rnacentral_sequence_search.overlap import fetch_overlapping_ncrnas
 from rnacentral_sequence_search.literature import fetch_rna_description
 from rnacentral_sequence_search.structure import fetch_secondary_structure_svg
@@ -141,16 +141,30 @@ async def search_sequence(
     databases: Optional[List[str]] = None,
 ) -> str:
     """
-    Search the RNAcentral database for a given RNA sequence.
+    Start a background search of the RNAcentral database for a given RNA sequence.
+    Returns a job ID immediately; the search can take minutes to hours under load.
+    Poll get_sequence_search_results with the job ID until it reports results.
     
     Args:
         sequence: The RNA sequence to search for
         databases: Optional list of specific databases to search within (default: all databases)
 
     Returns:
-        A markdown formatted summary of search results
+        A job ID to pass to get_sequence_search_results
     """
     return await perform_search_sequence(sequence, databases)
+
+@mcp.tool()
+async def get_sequence_search_results(job_id: str) -> str:
+    """
+    Check a sequence search job started by search_sequence.
+    Returns progress while the job is running, or a markdown summary of hits once finished.
+    If still running, wait (e.g. 30-60s) and call again.
+
+    Args:
+        job_id: The job ID returned by search_sequence
+    """
+    return await fetch_sequence_search_results(job_id)
 
 @click.command()
 @click.option('--log-dir', type=click.Path(file_okay=False, dir_okay=True, writable=True), help="Directory to store log files.")

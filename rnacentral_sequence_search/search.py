@@ -3,7 +3,7 @@ import asyncio
 import logging
 from typing import Optional, List
 from rnacentral_sequence_search.utils import (
-    resolve_taxid, build_ebi_query, format_results, 
+    resolve_taxid, build_ebi_query, format_results, fetch_json_with_retry,
     EBI_SEARCH_URL, EXPORT_SERVICE_URL, RNA_CENTRAL_SERVER
 )
 
@@ -188,27 +188,42 @@ async def perform_search_sequence(
     sequence: str,
     databases: Optional[List[str]] = None,
 ) -> str:
-    """Core logic for sequence-based RNA search."""
-    if databases is None: databases = []
-    data = {"databases": databases, "query": str(sequence)}
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.post(f"{RNA_CENTRAL_SERVER}api/submit-job", json=data) as resp:
-            if resp.status != 201: return f"Error: {resp.status}"
-            job_id = (await resp.json()).get("job_id")
-        
-        status = ""
-        for _ in range(30):
-            async with session.get(f"{RNA_CENTRAL_SERVER}api/job-status/{job_id}") as resp:
-                if resp.status == 200:
-                    status = (await resp.json()).get("status", "")
-                    if status in ["success", "partial_success"]: break
-                    elif status == "failed": return "Search job failed."
-            await asyncio.sleep(2)
-        
-        if status not in ["success", "partial_success"]: return "Search timed out."
-        
-        async with session.get(f"{RNA_CENTRAL_SERVER}api/job-result/{job_id}") as resp:
-            if resp.status == 200:
-                return format_results(await resp.json(), job_id, sequence)
-            return f"Error retrieving results: {resp.status}"
+    """Submit a sequence search job and return immediately with its job ID (searches can take hours under load)."""
+    data = {"databases": databases or [], "sequence": str(sequence)}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{RNA_CENTRAL_SERVER}api/submit-job", json=data) as resp:
+                if resp.status != 200:
+                    return f"Error submitting search job: HTTP {resp.status}"
+                job_id = (await resp.json()).get("job_id")
+        if not job_id:
+            return "Error: No job_id returned from search service."
+        return (f"Search job submitted. Job ID: `{job_id}`\n\n"
+                f"The search runs in the background and may take minutes to hours. "
+                f"Poll `get_sequence_search_results` with this job ID until it reports the job is finished.")
+    except Exception as e:
+        logger.error(f"Error in perform_search_sequence: {e}")
+        return f"An error occurred while searching: {str(e)}"
+
+
+async def fetch_sequence_search_results(job_id: str, sequence: str = "") -> str:
+    """Single status check for a job; returns progress, or formatted results once finished."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            _, status_data, err = await fetch_json_with_retry(session, f"{RNA_CENTRAL_SERVER}api/job-status/{job_id}")
+            if err:
+                return f"Error checking job status: {err}"
+            status = status_data.get("status", "")
+            if status in ("error", "not_found"):
+                return f"Search job `{job_id}` failed (status: {status})."
+            if status != "finished":
+                return (f"Search job `{job_id}` is {status}: {status_data.get('progress', 0):.0f}% complete "
+                        f"({status_data.get('databases_finished', 0)}/{status_data.get('databases_total', '?')} databases). "
+                        f"Still running; check again later.")
+            _, result_data, err = await fetch_json_with_retry(session, f"{RNA_CENTRAL_SERVER}api/job-results/{job_id}")
+            if err:
+                return f"Error retrieving results: {err}"
+            return format_results(result_data, job_id, sequence)
+    except Exception as e:
+        logger.error(f"Error in fetch_sequence_search_results: {e}")
+        return f"An error occurred while fetching results: {str(e)}"

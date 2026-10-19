@@ -13,7 +13,7 @@ This is an MCP server that provides a comprehensive interface to the RNAcentral 
 - **Sequence Search**: Search for RNA sequences across multiple databases to find identical or similar entries.
 - **Bidirectional ID Mapping**: Map between RNAcentral URS IDs and external database identifiers (miRBase, Ensembl, HGNC, etc.) with automatic taxonomy resolution.
 - **Bulk Sequence Export**: Export search results in FASTA or Parquet formats, ideal for downstream analysis or machine learning datasets.
-- **Genomic Overlap (Ensembl)**: Find non-coding RNAs overlapping specific genomic coordinates or gene symbols using Ensembl's GraphQL integration.
+- **Genomic Overlap (Ensembl)**: Find non-coding RNAs overlapping specific genomic coordinates or gene symbols using the Ensembl REST API.
 - **2D Structure Diagrams**: Retrieve secondary structure (2D) diagrams in SVG format for RNAs with known or predicted folds.
 - **Literature Summaries**: Access AI-generated literature summaries for RNA sequences to understand their biological context.
 

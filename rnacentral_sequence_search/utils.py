@@ -1,144 +1,92 @@
 import aiohttp
+import asyncio
 import logging
-from typing import Optional, List
+from typing import Optional, List, Tuple
+from urllib.parse import quote
 
 logger = logging.getLogger('rna_search')
 
 # Base URLs
-RNA_CENTRAL_SERVER = "https://search.rnacentral.org/"
+RNA_CENTRAL_SERVER = "https://sequence-search.rnacentral.org/"
 EBI_SEARCH_URL = "https://www.ebi.ac.uk/ebisearch/ws/rest/rnacentral"
 EXPORT_SERVICE_URL = "https://export.rnacentral.org/"
-ENSEMBL_GRAPHQL_URL = "https://beta.ensembl.org/data/graphql"
+ENSEMBL_REST_URL = "https://rest.ensembl.org"
+ENA_TAXONOMY_URL = "https://www.ebi.ac.uk/ena/taxonomy/rest/tax-id"
+
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 0.5
+
+
+async def fetch_json_with_retry(session: aiohttp.ClientSession, url: str) -> Tuple[int, Optional[dict | list], Optional[str]]:
+    """GET url and parse JSON, retrying on network errors and 5xx responses (both are
+    typically transient blips, not permanent failures)."""
+    last_error = None
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    return resp.status, await resp.json(), None
+                if resp.status < 500:
+                    return resp.status, None, f"HTTP {resp.status}"
+                last_error = f"HTTP {resp.status}"
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            last_error = str(e)
+
+        if attempt < RETRY_ATTEMPTS - 1:
+            await asyncio.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+
+    return 0, None, last_error
+
 
 async def resolve_taxid(session: aiohttp.ClientSession, taxon: Optional[str]) -> Optional[int]:
     """Resolves a taxon name or ID to an NCBI Taxon ID using the ENA API."""
     if not taxon:
         return None
-    
+
     # If it's already an ID, return it
     taxon_str = str(taxon).strip()
     if taxon_str.isdigit():
         return int(taxon_str)
-        
-    # Try scientific name
-    try:
-        url = f"https://www.ebi.ac.uk/ena/taxonomy/rest/scientific-name/{taxon_str}"
-        async with session.get(url) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                if data and isinstance(data, list):
-                    return int(data[0].get("taxId"))
-    except Exception:
-        pass
-        
-    # Try common name
-    try:
-        url = f"https://www.ebi.ac.uk/ena/taxonomy/rest/common-name/{taxon_str}"
-        async with session.get(url) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                if data and isinstance(data, list):
-                    return int(data[0].get("taxId"))
-    except Exception:
-        pass
-        
+
+    for kind in ("scientific-name", "common-name"):
+        _, data, _ = await fetch_json_with_retry(session, f"https://www.ebi.ac.uk/ena/taxonomy/rest/{kind}/{taxon_str}")
+        if data and isinstance(data, list):
+            return int(data[0].get("taxId"))
+
     return None
 
 async def resolve_gene_coordinates(session: aiohttp.ClientSession, taxid: int, gene_symbol: Optional[str]):
-    """Uses Ensembl GraphQL to get the coordinates of a gene and/or scientific name."""
-    # 1. Get genome ID and scientific name
-    query = {
-        "query": f"""
-        query GetGenome {{
-          genomes(by_keyword: {{ species_taxonomy_id: "{taxid}" }}) {{
-            genome_id
-            scientific_name
-            assembly_accession
-            genome_tag
-          }}
-        }}
-        """
-    }
-    
-    genome_id = None
-    scientific_name = None
-    try:
-        async with session.post(ENSEMBL_GRAPHQL_URL, json=query) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                genomes = data.get("data", {}).get("genomes", [])
-                if genomes:
-                    # Heuristic: Prefer GRCh38 for human, or generally the one with highest accession
-                    sorted_genomes = sorted(
-                        genomes, 
-                        key=lambda x: x.get("assembly_accession", ""), 
-                        reverse=True
-                    )
-                    
-                    # Also prefer grch38 tag if available (common for many species in beta Ensembl)
-                    grch38_genomes = [g for g in sorted_genomes if g.get("genome_tag") == "grch38"]
-                    best_genome = grch38_genomes[0] if grch38_genomes else sorted_genomes[0]
-                    
-                    genome_id = best_genome.get("genome_id")
-                    scientific_name = best_genome.get("scientific_name")
-            else:
-                return None, None, f"GraphQL genome query failed: {resp.status}"
-    except Exception as e:
-        logger.error(f"GraphQL genome error: {e}")
-        return None, None, f"GraphQL genome error: {e}"
-            
-    if not genome_id:
-        return None, None, f"Could not resolve genome_id for taxon ID: {taxid} via Ensembl GraphQL."
+    """Uses ENA taxonomy + the Ensembl REST API to get the coordinates of a gene and/or scientific name."""
+    # 1. Get scientific name for the taxon (needed to build the RNAcentral species slug)
+    _, data, err = await fetch_json_with_retry(session, f"{ENA_TAXONOMY_URL}/{taxid}")
+    if err:
+        logger.error(f"ENA taxonomy lookup error: {err}")
+        return None, None, f"ENA taxonomy lookup failed: {err}"
+
+    scientific_name = data.get("scientificName") if data else None
+    if not scientific_name:
+        return None, None, f"Could not resolve scientific name for taxon ID: {taxid}."
 
     if not gene_symbol:
         return None, scientific_name, None
 
-    # 2. Get gene coordinates
-    gene_query = {
-        "query": f"""
-        query GenesBySymbol {{
-          genes(by_symbol: {{ 
-            genome_id: "{genome_id}", 
-            symbol: "{gene_symbol}" 
-          }}) {{
-            stable_id
-            slice {{
-              region {{
-                name
-              }}
-              location {{
-                start
-                end
-              }}
-            }}
-          }}
-        }}
-        """
-    }
-    
-    try:
-        async with session.post(ENSEMBL_GRAPHQL_URL, json=gene_query) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                genes = data.get("data", {}).get("genes", [])
-                if not genes:
-                    return None, scientific_name, f"Gene {gene_symbol} not found in genome {genome_id}."
-                
-                gene = genes[0]
-                slice_info = gene.get("slice", {})
-                region_name = slice_info.get("region", {}).get("name")
-                location = slice_info.get("location", {})
-                start = location.get("start")
-                end = location.get("end")
-                
-                if region_name and start is not None and end is not None:
-                    return (region_name, start, end), scientific_name, None
-                else:
-                    return None, scientific_name, "Gene found but missing coordinate information."
-            else:
-                return None, scientific_name, f"GraphQL gene query failed: {resp.status}"
-    except Exception as e:
-        return None, scientific_name, f"GraphQL gene error: {e}"
+    # 2. Get gene coordinates via the Ensembl REST lookup endpoint
+    species_slug = scientific_name.lower().replace(" ", "_")
+    url = f"{ENSEMBL_REST_URL}/lookup/symbol/{quote(species_slug)}/{quote(gene_symbol)}?content-type=application/json"
+
+    status, data, err = await fetch_json_with_retry(session, url)
+    if status == 404:
+        return None, scientific_name, f"Gene {gene_symbol} not found in species {species_slug}."
+    if err:
+        return None, scientific_name, f"Ensembl REST lookup failed: {err}"
+
+    region_name = data.get("seq_region_name")
+    start = data.get("start")
+    end = data.get("end")
+
+    if region_name and start is not None and end is not None:
+        return (region_name, start, end), scientific_name, None
+    return None, scientific_name, "Gene found but missing coordinate information."
 
 def build_ebi_query(
     query: str,
@@ -170,7 +118,7 @@ def build_ebi_query(
 
 def format_results(results, job_id, sequence):
     """Format search results as markdown"""
-    hits = results
+    hits = results.get("entries", [])
     num_hits = len(hits)
     
     if num_hits == 0:
@@ -178,7 +126,7 @@ def format_results(results, job_id, sequence):
     
     markdown = [
         f"# RNAcentral Search Results",
-        f"Found **{num_hits}** potential matches.",
+        f"Found **{results.get('hit_count', num_hits)}** potential matches.",
         f"",
         f"## Top Hits"
     ]
@@ -196,3 +144,17 @@ def format_results(results, job_id, sequence):
     markdown.append(f"## View Complete Results")
     markdown.append(f"View the full results at: [RNAcentral Search Results]({RNA_CENTRAL_SERVER}?jobid={job_id})")
     return "\n".join(markdown)
+
+
+if __name__ == "__main__":
+    # ponytail: live smoke check for resolve_gene_coordinates, run manually with
+    # `python -m rnacentral_sequence_search.utils` (hits real ENA/Ensembl services)
+    async def _demo():
+        async with aiohttp.ClientSession() as session:
+            coords, sci_name, err = await resolve_gene_coordinates(session, 9606, "SMAD4")
+            assert err is None, f"unexpected error: {err}"
+            assert sci_name == "Homo sapiens", f"unexpected scientific name: {sci_name}"
+            assert coords == ("18", 51028528, 51085045), f"unexpected coords: {coords}"
+            print("OK:", coords, sci_name)
+
+    asyncio.run(_demo())

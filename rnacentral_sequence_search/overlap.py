@@ -1,8 +1,7 @@
 import aiohttp
-import asyncio
 import logging
 from typing import Optional
-from rnacentral_sequence_search.utils import resolve_taxid, resolve_gene_coordinates
+from rnacentral_sequence_search.utils import resolve_taxid, resolve_gene_coordinates, fetch_json_with_retry
 
 logger = logging.getLogger('rna_search')
 
@@ -41,25 +40,23 @@ async def fetch_overlapping_ncrnas(
         try:
             all_results = []
             current_url = url
-            
-            for _ in range(3): 
-                async with session.get(current_url) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if isinstance(data, list):
-                            all_results.extend(data)
-                            break
-                        elif isinstance(data, dict):
-                            results = data.get("results", [])
-                            all_results.extend(results)
-                            current_url = data.get("next")
-                            if not current_url:
-                                break
-                    elif resp.status == 404:
+
+            for _ in range(3):
+                status, data, err = await fetch_json_with_retry(session, current_url)
+                if status == 404:
+                    break
+                if err:
+                    return f"Error querying RNAcentral overlap API: {err}\nURL: {url}"
+
+                if isinstance(data, list):
+                    all_results.extend(data)
+                    break
+                elif isinstance(data, dict):
+                    results = data.get("results", [])
+                    all_results.extend(results)
+                    current_url = data.get("next")
+                    if not current_url:
                         break
-                    else:
-                        error_text = await resp.text()
-                        return f"Error querying RNAcentral overlap API: HTTP {resp.status} - {error_text}\nURL: {url}"
             
             transcripts = [r for r in all_results if r.get("feature_type") == "transcript"]
             if not transcripts:

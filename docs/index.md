@@ -4,7 +4,7 @@ An [MCP](https://modelcontextprotocol.io) server that exposes the
 [RNAcentral](https://rnacentral.org) database — non-coding RNA sequences, cross-references,
 genomic context, 2D structures, and literature summaries — as tools your LLM can call.
 
-The server orchestrates several upstream APIs (EBI Search, RNAcentral REST, Ensembl GraphQL,
+The server orchestrates several upstream APIs (EBI Search, RNAcentral REST, Ensembl REST,
 the sequence-search and export microservices) so the model can answer a single question with
 a single tool call instead of chaining raw HTTP requests.
 

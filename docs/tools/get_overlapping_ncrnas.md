@@ -2,7 +2,7 @@
 
 Find non-coding RNAs that overlap a genomic region. The region can be specified
 either as explicit coordinates or as a gene symbol, in which case the tool uses
-Ensembl's GraphQL API to resolve the symbol to coordinates first.
+the Ensembl REST API to resolve the symbol to coordinates first.
 
 ## Arguments
 
@@ -25,5 +25,5 @@ genomic coordinates, strand, and source database.
 
 ## Upstream services
 
-- Ensembl GraphQL API for `gene_symbol` → coordinates resolution.
+- Ensembl REST API for `gene_symbol` → coordinates resolution.
 - RNAcentral REST API for the overlap query.

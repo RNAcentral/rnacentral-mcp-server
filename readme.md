@@ -106,6 +106,14 @@ Or using the installed script:
 run-server --log-dir ./logs
 ```
 
+## Running Tests
+
+Run the unit test suite with `uv`:
+
+```bash
+uv run pytest
+```
+
 ## Usage Examples
 
 Once the server is running, you can interact with various tools:

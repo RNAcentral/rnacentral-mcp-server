@@ -223,6 +223,10 @@ async def fetch_sequence_search_results(job_id: str, sequence: str = "") -> str:
             _, result_data, err = await fetch_json_with_retry(session, f"{RNA_CENTRAL_SERVER}api/job-results/{job_id}")
             if err:
                 return f"Error retrieving results: {err}"
+            if not result_data.get("entries"):
+                # The service reports "finished" ~20s before hits are queryable, so empty is ambiguous.
+                return (f"Search job `{job_id}` has finished but returned no hits yet. Results can take about "
+                        f"30 seconds to appear after completion; check again once. If it is still empty, there are no matches.")
             return format_results(result_data, job_id, sequence)
     except Exception as e:
         logger.error(f"Error in fetch_sequence_search_results: {e}")

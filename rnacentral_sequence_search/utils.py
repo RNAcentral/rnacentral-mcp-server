@@ -133,12 +133,12 @@ def format_results(results, job_id, sequence):
     
     for i, hit in enumerate(hits[:5]):
         rnacentral_id = hit.get("rnacentral_id", "Unknown")
-        description = hit.get("description", "No description available")
+        description = hit.get("description") or "No description available"
         score = hit.get("score", "N/A")
         
         markdown.append(f"### {i+1}. {description}")
         markdown.append(f"**RNAcentral ID**: [{rnacentral_id}](https://rnacentral.org/rna/{rnacentral_id})")
-        markdown.append(f"**Score**: {score}")
+        markdown.append(f"**Score**: {score} | **E-value**: {hit.get('e_value', 'N/A')} | **Identity**: {hit.get('identity', 'N/A'):.1f}% | **Query coverage**: {hit.get('query_coverage', 'N/A'):.1f}%")
         markdown.append("")
     
     markdown.append(f"## View Complete Results")

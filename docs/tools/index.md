@@ -1,6 +1,6 @@
 # Tool reference
 
-The server registers seven MCP tools. Each page below documents a tool's purpose,
+The server registers eight MCP tools. Each page below documents a tool's purpose,
 arguments, return shape, and the upstream service it talks to.
 
 ```{toctree}
@@ -8,6 +8,7 @@ arguments, return shape, and the upstream service it talks to.
 
 query_rnacentral
 search_sequence
+get_sequence_search_results
 map_rna_id
 export_sequences
 get_overlapping_ncrnas
@@ -21,6 +22,7 @@ get_rna_description
 | --- | --- |
 | [`query_rnacentral`](query_rnacentral.md) | Text/metadata search over RNAcentral with enriched results |
 | [`search_sequence`](search_sequence.md) | Similarity search by raw RNA sequence |
+| [`get_sequence_search_results`](get_sequence_search_results.md) | Poll a sequence search job; returns progress or the top hits |
 | [`map_rna_id`](map_rna_id.md) | Bidirectional mapping between URS IDs and external DB IDs |
 | [`export_sequences`](export_sequences.md) | Bulk export of matching sequences (FASTA or Parquet) |
 | [`get_overlapping_ncrnas`](get_overlapping_ncrnas.md) | Find ncRNAs overlapping genomic coordinates or a gene |

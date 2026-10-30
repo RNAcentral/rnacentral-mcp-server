@@ -26,5 +26,5 @@ tools/index
 :maxdepth: 1
 :caption: Examples
 
-examples
+examples/index
 ```

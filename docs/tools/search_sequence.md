@@ -1,8 +1,8 @@
 # `search_sequence`
 
 Similarity search by raw RNA sequence. Submits the sequence to the RNAcentral
-sequence-search service, polls for completion, and returns the top hits across the
-member databases.
+sequence-search service as a background job and returns a job ID immediately. Fetch the
+hits with {doc}`get_sequence_search_results`.
 
 Use this when you have a nucleotide sequence and want to know what it matches in
 RNAcentral. If you already have an accession or a name, use {doc}`query_rnacentral`.
@@ -16,13 +16,14 @@ RNAcentral. If you already have an accession or a name, use {doc}`query_rnacentr
 
 ## Returns
 
-A markdown summary of the hits: accession, description, organism, E-value/identity,
-and the source database.
+A job ID, with an instruction to poll {doc}`get_sequence_search_results`. The search
+itself runs on the service and can take from about two minutes to hours under load.
 
 ## Notes
 
-- The upstream service is asynchronous — the tool submits a job and polls until
-  results are ready or a timeout is hit. Expect a few seconds of latency on a cold
-  cache.
-- Very long sequences or highly repetitive sequences may be rejected by the
-  upstream service; the tool surfaces the error message verbatim.
+- The tool does not wait for the search. Poll `get_sequence_search_results` with the job
+  ID until it reports results.
+- Sequences must be 10–7000 nucleotides. RNA (`U`) and DNA (`T`) alphabets are both
+  accepted.
+- Very long or highly repetitive sequences may be rejected by the upstream service; the
+  tool surfaces the HTTP status.

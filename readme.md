@@ -19,7 +19,7 @@ This is an MCP server that provides a comprehensive interface to the RNAcentral 
 
 ## Prerequisites
 
-- Python 3.10 or higher
+- Python 3.14 or higher
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 
 ## Installation
